@@ -1,0 +1,76 @@
+name: CI/CD Pipeline
+
+# Triggers: Quando o workflow será acionado
+on:
+  push:
+    branches:
+      - main       # Quando fizer push na branch 'main'
+  pull_request:
+    branches:
+      - main       # Quando houver um pull request na branch 'main'
+
+# Definindo os jobs do pipeline
+jobs:
+  # Primeiro job: Controle de versão e CI
+  version-control-and-ci:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # Step 1: Fazer o checkout do código
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      # Step 2: Configurar a versão do Python (ou qualquer outro ambiente)
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.x'  # Troque para a versão que você está usando
+      
+      # Step 3: Instalar dependências
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+  # Segundo job: Compilação
+  compile:
+    needs: version-control-and-ci  # Só compila após o job anterior completar
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      # Step 4: Compilar o código (se aplicável)
+      - name: Compile code
+        run: |
+          # Coloque os comandos de compilação aqui. Exemplo para Python:
+          python setup.py build
+      
+      # Se o seu projeto usar outra linguagem que requer compilação, como Java, .NET ou Go,
+      # você deve substituir o comando de compilação pelo adequado.
+
+  # Terceiro job: Testes automatizados
+  tests:
+    needs: compile  # Só roda testes após a compilação (se aplicável)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      # Step 5: Executar os testes automatizados
+      - name: Run tests
+        run: |
+          pytest
+
+  # Você pode adicionar mais jobs para deploy, integração com outros sistemas, etc.
