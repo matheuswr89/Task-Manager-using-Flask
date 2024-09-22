@@ -1,0 +1,11 @@
+[run]
+source = todo_project
+omit =
+    */__init__.py
+    */test/*
+    */run.py
+
+[report]
+exclude_lines =
+    if __name__ == .__main__.:
+    pragma: no cover

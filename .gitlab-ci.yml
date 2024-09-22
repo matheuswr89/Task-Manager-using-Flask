@@ -1,0 +1,132 @@
+stages:
+  - review
+  - build
+  - test
+  - deploy
+  - dast
+
+variables:
+  DAST_TARGET_URL: 'http://localhost:5000'
+  ACCESS_TOKEN: meu_token
+
+tagging:
+  stage: build
+  only:
+    - staging
+  before_script:
+    - apk add --no-cache git
+  script:
+    - git config --global user.name "GitLab CI"
+    - git config --global user.email "ci@example.com"
+    - git fetch --tags
+    - |
+      TAG_NAME="v1.0.0-$(date +%Y%m%d%H%M%S)"
+      git tag "$TAG_NAME"
+      git push http://oauth2:${ACCESS_TOKEN}@192.168.1.104/root/estudo-de-caso.git "$TAG_NAME"
+
+review:
+  stage: review
+  image: python:3.12-slim
+  script:
+      - echo "Testing the app"
+      - pip install --no-cache-dir -r requirements.txt
+      - python -m coverage run -m unittest discover -s todo_project/ -p "test_*.py" && python -m coverage report && python -m coverage html
+  only:
+    - merge_requests
+
+build_job:
+   stage: build
+   only:
+    - staging
+   image: docker:20.10.16
+   services:
+       - docker:20.10.16-dind
+   script:
+       - docker build -t ex-build-dev:latest .
+
+test_job:
+   stage: test
+   only:
+    - staging
+   image: python:3.12-slim
+   script:
+      - echo "Testing the app"
+      - pip install --no-cache-dir -r requirements.txt
+      - python -m coverage run -m unittest discover -s todo_project/ -p "test_*.py" && python -m coverage report && python -m coverage html
+   artifacts:
+      paths:
+         - htmlcov/*
+
+sast:
+  stage: test
+  only:
+    - staging
+  image: python:3.9
+  script:
+    - pip install bandit
+    - bandit -r . -f html -o bandit_report.html -x "/test/"
+  artifacts:
+    when: always
+    paths:
+      - bandit_report.html
+
+dependency_check:
+  image:
+    name: registry.gitlab.com/gitlab-ci-utils/docker-dependency-check:latest
+    entrypoint: [""]
+  stage: test
+  only:
+    - staging
+  script:
+    - >
+      /usr/share/dependency-check/bin/dependency-check.sh --scan "./" --format ALL
+      --project "$CI_PROJECT_NAME" --failOnCVSS 0
+  allow_failure: true
+  artifacts:
+    when: always
+    paths:
+      - "./dependency-check-report.html"
+      - "./dependency-check-report.json"
+
+deploy_job:
+    stage: deploy
+    only:
+    - staging
+    image: docker:20.10.16
+    services:
+        - docker:20.10.16-dind
+    before_script:        
+        - echo "Remove anterior"
+        - PORT_CONTAINERS=$(docker ps --filter "publish=5000" -q)
+        - echo $PORT_CONTAINERS
+        - if [ -n "$PORT_CONTAINERS" ]; then
+            docker stop $PORT_CONTAINERS;
+            docker rm $PORT_CONTAINERS;
+            sleep 5; 
+          fi
+    script:
+        - echo "Deploying the app"
+        - docker run -d -p 5000:5000 ex-build-dev:latest
+
+dast:
+  stage: dast
+  dependencies:
+    - deploy_job
+  image: maven:3.8.5-openjdk-11-slim
+  only:
+    - staging
+  script:
+    - apt-get update
+    - apt-get -y install wget
+    - apt-get -y install wkhtmltopdf
+    - wget https://github.com/zaproxy/zaproxy/releases/download/v2.15.0/ZAP_2.15.0_Linux.tar.gz
+    - mkdir zap
+    - tar -xvf ZAP_2.15.0_Linux.tar.gz
+    - cd ZAP_2.15.0
+    - ./zap.sh -cmd -quickurl $DAST_TARGET_URL -quickprogress -quickout ../zap_report.html
+    - cd ..
+    - wkhtmltopdf zap_report.html zap_report.pdf
+  artifacts:
+    paths:
+      - zap_report.pdf
+
